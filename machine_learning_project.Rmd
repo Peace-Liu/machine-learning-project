@@ -1,0 +1,128 @@
+---
+title: "Practical Maching Learning - Course Project"
+author: "Peace Liu"
+date: "March 11, 2017"
+output: html_document
+---
+
+## I. Overview
+- The data used for this project are provided by the source [groupware](http://groupware.les.inf.puc-rio.br/har). Here I acknowledge them for being so generous to allow their data to be used for this project. This dataset contains personal activity features from all kinds of devices like *Jawbone Up, Nike FuelBand, and Fitbit*. In this project data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants will be used to predict the manner (**classe** variable in dataset) in which they did the exercise with all other variables as predictors.  
+- **classe** has 5 levels: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).  
+- Three prediction methods (**Random Forests, Decision Tree and Generalized Boosted Model**) will be used to build the model in the training dataset. The best one with higher accuracy on the test dataset will be used for the prediction of the quiz.
+
+## II. Load and clean dataset
+### Load data 
+```{r}
+# set desired work directory
+setwd("C:/Users/Fang Liu/Desktop/Fang Learning Video/Coursera-Data Science Specialzation By John Hopkins/8 Practical machine learning/Course Project")
+# download training dataset
+if (!file.exists("training.csv")) {
+  download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", dest="training.csv")
+}
+# download testing dataset
+if (!file.exists("testing.csv")) {
+  download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", dest="testing.csv")
+}
+training <- read.csv("training.csv", header=TRUE, sep=",")  # 19622 obs of 160 variables
+testing <- read.csv("testing.csv", header=TRUE, sep=",")    # 20 obs. of 160 variables 
+```
+
+### From training dataset, remove variables with Nearly Zero Variance, the variables with 80% NA and ID variables since these variables will not provide much power for prediction.
+```{r}
+# remove nearly zero variables
+library(caret); library(ggplot2)
+NZV <- nearZeroVar(training)
+training <- training[, -NZV]  # 19622 obs of 100 variables
+# remove variables that are mostly NA
+NAS <- sapply(training, function(x) mean(is.na(x))) > 0.8
+training <- training[, NAS==FALSE]  # 19622 obs of 59 variables
+# remove identification only variables (columns 1 to 5)
+training <- training[, -(1:5)]      # 19622 obs of 54 variables
+```
+
+#### Now after cleaning up, the number of variables left for analysis has been reduced to 54.
+
+### create a partition with the train and test dataset 
+```{r}
+inTrain <- createDataPartition(training$classe, p=0.7, list=FALSE)
+TrainSet <- training[inTrain, ]   # 13737 obs of 54 variables
+TestSet  <- training[-inTrain, ]  # 5885 obs of 54 variables
+```
+
+## III. Exploratory Analysis (Correlation Analysis)  
+#### Somtimes covariates can be highly correlated with each other. To do correlation analysis, leave out outcome variable in 54th column and only look at predictor variables and make self correlation=0 and plot corr plot
+```{r}
+library(corrplot)
+M <- cor(TrainSet[, -54]); diag(M) <- 0
+corrplot(M, order = "FPC", method = "color", type = "lower", tl.cex = 0.8, tl.col = rgb(0, 0, 0))
+```
+
+#### From correlation matrix plot, there are few correlations among covariates.
+
+## IV. Prediction Model Building
+#### Three methods will be applied to the trainset then predict on testset, pick the highest accuracy model to predict for quiz
+
+### 1. Decision Trees
+```{r}
+library(rpart)
+set.seed(247)
+treemodfit <- train(classe ~ ., method="rpart", data=TrainSet)
+treemodfit$finalModel
+treemodfit
+```
+
+```{r}
+# Predict on testset
+preditTree <- predict(treemodfit, newdata = TestSet)
+confusionM_tree <- confusionMatrix(preditTree, TestSet$classe)
+confusionM_tree     # Accuracy=0.4882     
+```
+
+**Decision tree generates a model with accuracy=0.4882**
+
+### 2. Random Forest
+```{r}
+library(randomForest)
+set.seed(247)
+RFmodfit <- train(classe ~ ., method="rf", data=TrainSet, trControl=trainControl(method="cv", number=3, verboseIter = FALSE))
+RFmodfit$finalmodel
+RFmodfit
+```
+
+```{r}
+# Predict on testset
+preditRF <- predict(RFmodfit, newdata = TestSet)
+confusionM_RF <- confusionMatrix(preditRF, TestSet$classe)
+confusionM_RF     # Accuracy=0.998     
+```
+
+**Random Forest generates a model with accuracy=0.998**
+
+### 3. Generalized Boosted Model
+```{r}
+library(gbm); library(plyr)
+set.seed(247)
+GBmodfit <- train(classe ~ ., method="gbm", data=TrainSet, verbose=FALSE, trControl=trainControl(method="cv", number=3))
+GBmodfit$finalModel
+GBmodfit
+```
+
+
+```{r}
+# Predict on testset
+preditGB <- predict(GBmodfit, newdata = TestSet)
+confusionM_GB <- confusionMatrix(preditGB, TestSet$classe)
+confusionM_GB     # Accuracy=0.9876 
+```
+
+**Generalized Boosted algorithm generates a model with accuracy=0.9876**
+
+## V. Final Model selection and prediction to testing datase for quiz.
+- Comparing 3 model predition accruacy, Random Forest has highest overall accuracy=0.998. 
+- The final random forests model contains 500 trees with 40 variables tried at each split. Estimated out of sample error rate for the random forests model is 0.04% from the final model.  
+- So predict the 20 quiz results (testing dataset) as shown below with randowm forest **RFmodfit**.
+
+```{r}
+predict_test <- predict(RFmodfit, newdata = testing)
+predict_test
+```
